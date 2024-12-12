@@ -9,9 +9,10 @@ class PasswordDialog(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.title("А ты точно профсоюз?")
-        self.geometry("300x100")
+        self.geometry("300x100")  # Задаем начальную геометрию
         self.resizable(False, False)
 
+        # Создаем виджеты
         self.label = tk.Label(self, text="Введите код для печати:")
         self.label.pack(pady=5)
 
@@ -30,12 +31,12 @@ class PasswordDialog(tk.Toplevel):
 
         self.result = None
 
-        # Bind Ctrl+V for pasting
-        self.bind_all("<Control-v>", self.paste_clipboard)
+        # Привязываем Enter
+        self.entry.bind("<Return>", lambda event: self.on_ok())
 
-        # Center the window and make it topmost
+        # Центрируем окно
         self.center_window()
-        self.attributes('-topmost', True)
+        self.attributes('-topmost', True)  # Устанавливаем поверх всех окон
 
     def paste_clipboard(self, event):
         try:
@@ -44,12 +45,13 @@ class PasswordDialog(tk.Toplevel):
             pass
 
     def center_window(self):
-        self.update_idletasks()  # Update geometry information
+        """Располагает окно в центре экрана."""
+        self.update_idletasks()  # Обновить информацию о геометрии окна
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
-        size = tuple(int(_) for _ in self.geometry().split('+')[0].split('x'))
-        x = screen_width // 2 - size[0] // 2
-        y = screen_height // 2 - size[1] // 2
+        size = tuple(map(int, self.geometry().split('+')[0].split('x')))
+        x = (screen_width - size[0]) // 2
+        y = (screen_height - size[1]) // 2
         self.geometry(f"{size[0]}x{size[1]}+{x}+{y}")
 
     def on_ok(self):
@@ -106,50 +108,58 @@ def monitor_print_jobs():
     processed_jobs = {}  # Словарь для отслеживания обработанных заданий
 
     while True:
-        # Получаем список заданий на печать
-        printer_handle = win32print.OpenPrinter(printer_name)
-        jobs = win32print.EnumJobs(printer_handle, 0, -1, 1)
+        try:
+            # Получаем список заданий на печать
+            printer_handle = win32print.OpenPrinter(printer_name)
+            jobs = win32print.EnumJobs(printer_handle, 0, -1, 1)
 
-        if jobs:
-            for job in jobs:
-                job_id = job['JobId']
-                job_status = job.get('Status', 0)
+            if jobs:
+                for job in jobs:
+                    job_id = job['JobId']
+                    job_status = job.get('Status', 0)
 
-                # Проверяем, обрабатывалось ли задание ранее
-                if job_id in processed_jobs:
-                    if processed_jobs[job_id] == "completed":
-                        continue  # Пропускаем завершенные задания
+                    # Проверяем, обрабатывалось ли задание ранее
+                    if job_id in processed_jobs:
+                        if processed_jobs[job_id] == "completed":
+                            continue  # Пропускаем завершенные задания
 
-                # Если задание не обработано или его статус изменился, работаем с ним
-                print(f"Pausing job {job_id} for document: {job.get('pDocument', 'Unknown Document')}")
-                win32print.SetJob(printer_handle, job_id, 0, None, win32print.JOB_CONTROL_PAUSE)
+                    # Если задание не обработано или его статус изменился, работаем с ним
+                    print(f"Pausing job {job_id} for document: {job.get('pDocument', 'Unknown Document')}")
+                    win32print.SetJob(printer_handle, job_id, 0, None, win32print.JOB_CONTROL_PAUSE)
 
-                # Выводим информацию о задании
-                document_name = job.get('pDocument', 'Unknown Document')
-                user_name = job.get('pUserName', 'Unknown User')
-                print(f"Job detected: {document_name}")
-                print(f"User: {user_name}, Status: {job_status}")
+                    # Выводим информацию о задании
+                    document_name = job.get('pDocument', 'Unknown Document')
+                    user_name = job.get('pUserName', 'Unknown User')
+                    print(f"Job detected: {document_name}")
+                    print(f"User: {user_name}, Status: {job_status}")
 
-                # Запрашиваем код у пользователя
-                code = get_daily_password_from_server()
-                if code:
-                    user_code = prompt_for_password()
-                    if user_code == code:
-                        print("Code accepted. Resuming the print job...")
-                        win32print.SetJob(printer_handle, job_id, 0, None, win32print.JOB_CONTROL_RESUME)
-                        processed_jobs[job_id] = "completed"
-                        show_result_message(True)
-                    else:
-                        print("Invalid code. Canceling the print job...")
-                        win32print.SetJob(printer_handle, job_id, 0, None, win32print.JOB_CONTROL_DELETE)
-                        processed_jobs[job_id] = "completed"
-                        show_result_message(False)
+                    # Запрашиваем код у пользователя
+                    code = get_daily_password_from_server()
+                    if code:
+                        user_code = prompt_for_password()
+                        if user_code == code:
+                            print("Code accepted. Resuming the print job...")
+                            win32print.SetJob(printer_handle, job_id, 0, None, win32print.JOB_CONTROL_RESUME)
+                            processed_jobs[job_id] = "completed"
+                            show_result_message(True)
+                        else:
+                            print("Invalid code. Canceling the print job...")
+                            win32print.SetJob(printer_handle, job_id, 0, None, win32print.JOB_CONTROL_DELETE)
+                            processed_jobs[job_id] = "completed"
+                            show_result_message(False)
 
-        win32print.ClosePrinter(printer_handle)
+            win32print.ClosePrinter(printer_handle)
+
+        except Exception as e:
+            print(f"Error during monitoring: {e}")
+            time.sleep(1)  # Ждем, чтобы избежать перегрузки в случае ошибок
 
 
 if __name__ == "__main__":
-    try:
-        monitor_print_jobs()
-    except KeyboardInterrupt:
-        print("Monitoring stopped.")
+    print("Starting the monitoring service...")
+    while True:
+        try:
+            monitor_print_jobs()
+        except Exception as e:
+            print(f"Critical error in the monitoring loop: {e}")
+            time.sleep(5)  # Ждем, чтобы избежать быстрого перезапуска при критических ошибках
